@@ -96,6 +96,54 @@ void app_main() {
     // }
 
     ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_LOGI(MDNS_TAG, "mDNS instance name set to: [%s]", MDNS_INSTANCE);
 
+#if (USE_UART_BRIDGE == 1)
+    uart_bridge_init();
+#endif
+    wifi_init();
+    DAP_Setup();
+    timer_init();
+
+#if (USE_MDNS == 1)
+    mdns_setup();
+#endif
+
+
+#if (USE_OTA == 1)
+    co_handle_t handle;
+    co_config_t config = {
+        .thread_name = "corsacOTA",
+        .stack_size = 3192,
+        .thread_prio = 8,
+        .listen_port = 3241,
+        .max_listen_num = 2,
+        .wait_timeout_sec = 60,
+        .wait_timeout_usec = 0,
+    };
+
+    corsacOTA_init(&handle, &config);
+#endif
+
+    // Specify the usbip server task
+#if (USE_TCP_NETCONN == 1)
+    xTaskCreatePinnedToCore(tcp_netconn_task, "tcp_server", 4096, NULL, 14, NULL, DAP_TASK_AFFINITY);
+#else // BSD style
+    xTaskCreatePinnedToCore(tcp_server_task, "tcp_server", 4096, NULL, 14, NULL,
+                            DAP_TASK_AFFINITY);
+#endif
+
+    // DAP handle task
+    xTaskCreatePinnedToCore(DAP_Thread, "DAP_Task", 2048, NULL, 10, &kDAPTaskHandle,
+                            DAP_TASK_AFFINITY);
+
+#if defined CONFIG_IDF_TARGET_ESP8266
+    #define UART_BRIDGE_TASK_STACK_SIZE 1024
+#else
+    #define UART_BRIDGE_TASK_STACK_SIZE 2048
+#endif
+
+    //// FIXME: potential stack overflow
+#if (USE_UART_BRIDGE == 1)
+    xTaskCreate(uart_bridge_task, "uart_server", UART_BRIDGE_TASK_STACK_SIZE, NULL, 2, NULL);
+#endif
 }
